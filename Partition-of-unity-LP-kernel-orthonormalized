@@ -1,0 +1,84 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Parameters ---
+N = 50
+x_min, x_max = -60, 60
+num_points = 8000
+xis = np.linspace(x_min, x_max, num_points)
+dx = (x_max - x_min) / (num_points - 1)
+tau = 0.5
+
+# Uniform nu spacing: nu_0 = -50, step = 2
+nu = np.array([-50 + 2 * i for i in range(N + 1)])
+
+# Define beta(x) = x
+def beta(x):
+    return x
+
+# Piecewise psi_LP
+def psi_LP(xi):
+    if -1 < xi < -0.5:
+        return np.sin((np.pi / 2) * beta(2 * xi + 2))
+    elif -0.5 <= xi <= 0.5:
+        return 1.0
+    elif 0.5 < xi <= 1:
+        return np.cos((np.pi / 2) * beta(2 * xi - 1))
+    else:
+        return 0.0
+
+vec_psi_LP = np.vectorize(psi_LP)
+
+# gamma_n
+def gamma_n(xi, nu_n, nu_np1, tau_n=tau, tau_np1=tau):
+    if xi <= nu_n + tau_n:
+        return (xi - nu_n - 3 * tau_n) / (4 * tau_n)
+    elif nu_n + tau_n <= xi <= nu_np1 - tau_np1:
+        numerator = xi - nu_n - tau_n
+        denominator = nu_np1 - tau_np1 - nu_n - tau_n
+        return (numerator / denominator) - 0.5
+    else:
+        return (xi - nu_np1 + 3 * tau_np1) / (4 * tau_np1)
+
+vec_gamma_n = np.vectorize(gamma_n)
+
+# f is the wavelet built from psi_LP and gamma_n
+def f(xi, nu_n, nu_np1):
+    gamma_vals = vec_gamma_n(xi, nu_n, nu_np1)
+    return vec_psi_LP(gamma_vals)
+
+# --- Generate psi_n functions ---
+psi_list = []
+for i in range(N):
+    psi_vals = np.array([f(x, nu[i], nu[i+1]) for x in xis])
+    psi_list.append(psi_vals)
+
+# --- Gram-Schmidt Orthonormalization ---
+e_list = []
+for i, psi in enumerate(psi_list):
+    w = psi.copy()
+    for e in e_list:
+        proj = np.sum(w * e) * dx
+        w -= proj * e
+    norm_w = np.sqrt(np.sum(w**2) * dx)
+    if norm_w < 1e-14:
+        print(f"Warning: Vector {i+1} is numerically zero after projection.")
+        w = np.zeros_like(w)
+    else:
+        w /= norm_w
+    e_list.append(w)
+
+# --- Compute S_N(x) = sum_i e_i(x)^2 ---
+S_N_vals = np.sum([e**2 for e in e_list], axis=0)
+
+# --- Plot ---
+plt.figure(figsize=(12, 5))
+plt.plot(xis, S_N_vals, label=r'$S_{N}(\xi) = \sum_{n=1}^N |e_n(\xi)|^2$')
+plt.xlim(-20, 20)  # Focus on the central region
+plt.xlabel(r'$\xi$')  # Changed from $x$ to $\xi$
+plt.ylabel(r'$S_N(\xi)$')
+plt.title(r'Partition of Unity for $\xi$ values')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
