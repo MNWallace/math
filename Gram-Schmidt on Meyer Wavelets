@@ -1,0 +1,136 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Beta function for Meyer kernel ---
+def beta(x):
+    return x**4 * (35 - 84*x + 70*x**2 - 20*x**3)
+
+# --- Meyer wavelet ---
+def psi_Meyer(xi):
+    xi = np.asarray(xi)
+    phase = np.exp(1j * (2 * np.pi / 3) * (xi + 1))
+    values = np.where(
+        (-1 <= xi) & (xi <= 0),
+        np.sin((np.pi / 2) * beta(xi + 1)),
+        np.where(
+            (0 < xi) & (xi <= 1),
+            np.cos((np.pi / 2) * beta(xi)),
+            0.0
+        )
+    )
+    return phase * values
+
+# --- Gamma_n  ---
+def gamma_n(xi, omega_nm1, omega_n, omega_np1):
+    xi = np.asarray(xi)
+    return np.where(
+        xi <= omega_n,
+        (xi - omega_n) / (omega_n - omega_nm1),
+        (xi - omega_n) / (omega_np1 - omega_n)
+    )
+
+# --- Meyer component for given interval ---
+def meyer_component(xi, omega_nm1, omega_n, omega_np1):
+    return psi_Meyer(gamma_n(xi, omega_nm1, omega_n, omega_np1))
+
+# --- Build Meyer wavelet system from ν_n list ---
+def build_meyer_wavelets(xi_grid, nu_list):
+    # Compute omega_n = (nu_n + nu_{n−1}) / 2
+    omega = [(nu_list[i] + nu_list[i - 1]) / 2 for i in range(1, len(nu_list))]
+    components = []
+    for n in range(1, len(omega) - 1):
+        omega_nm1 = omega[n - 1]
+        omega_n = omega[n]
+        omega_np1 = omega[n + 1]
+        psi_n = meyer_component(xi_grid, omega_nm1, omega_n, omega_np1)
+        components.append(psi_n)
+    return components, omega
+
+# --- Sample ν_n values ---
+nu = [-10, -4, -3, 2, 7, 8, 11, 12, 17]
+
+# --- Discretize frequency domain ---
+xi_min, xi_max = -10, 17
+N = 2000
+xis = np.linspace(xi_min, xi_max, N)
+dx = (xi_max - xi_min) / (N - 1)
+
+# --- Build wavelet components ---
+wavelets, omega = build_meyer_wavelets(xis, nu)
+
+# --- Gram-Schmidt for complex-valued functions ---
+def gram_schmidt_complex(vectors):
+    orthonormal = []
+    for v in vectors:
+        for u in orthonormal:
+            proj = np.sum(v * np.conj(u)) * dx
+            v = v - proj * u
+        norm = np.sqrt(np.sum(v * np.conj(v)) * dx)
+        if norm > 1e-12:
+            orthonormal.append(v / norm)
+    return orthonormal
+
+orthonormal_funcs = gram_schmidt_complex(wavelets)
+# --- Check inner products for orthonormality ---
+tolerance = 1e-12
+print("\nChecking inner products of orthonormal functions:")
+for i in range(len(orthonormal_funcs)):
+    for j in range(i, len(orthonormal_funcs)):
+        ip = np.sum(orthonormal_funcs[i] * np.conj(orthonormal_funcs[j])) * dx
+        if i == j:
+            print(f"⟨φ_{i+1}, φ_{j+1}⟩ = {ip:.16f} (should be 1)")
+        else:
+            print(f"⟨φ_{i+1}, φ_{j+1}⟩ = {ip:.2e} → ", end="")
+            if abs(ip) < tolerance:
+                print("orthogonal")
+            else:
+                print("not orthogonal")
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+# Original functions
+for i, psi in enumerate(wavelets, start=1):
+    axes[0].plot(xis, np.abs(psi), label=rf"$|\psi_{i}(\xi)|$")
+axes[0].set_title("Magnitude Spectrum of Original Meyer wavelets")
+axes[0].set_xlabel(r"$\xi$")
+axes[0].grid(True)
+axes[0].legend()
+
+# Orthonormal functions
+for i, phi in enumerate(orthonormal_funcs, start=1):
+    axes[1].plot(xis, np.abs(phi), label=rf"$|e_{i}(\xi)|$")
+axes[1].set_title("Magnitude Spectrum of Orthonormalized wavelets")
+axes[1].set_xlabel(r"$\xi$")
+axes[1].grid(True)
+axes[1].legend()
+
+plt.tight_layout()
+plt.show()
+# --- Partition of unity test for orthonormal functions ---
+S_vals = np.sum([np.abs(phi)**2 for phi in orthonormal_funcs], axis=0)
+
+plt.figure(figsize=(10, 5))
+plt.plot(xis, S_vals, label=r'$S(\xi) = \sum_{n} |e_n(\xi)|^2$')
+plt.xlabel(r'$\xi$')
+plt.ylabel(r'$S(\xi)$')
+plt.title('Partition of Unity Test for Gram–Schmidt Meyer Wavelets')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
+# Graph of original functions looked incorrect to me so I wrote this to check sum property.
+# Check sum of squared magnitudes at xi = -2 ---
+xi_test = -2.9
+psi_vals = []
+
+# Evaluate the same way as in build_meyer_wavelets but at a single xi
+for n in range(1, len(omega) - 1):
+    omega_nm1 = omega[n - 1]
+    omega_n = omega[n]
+    omega_np1 = omega[n + 1]
+    psi_n = meyer_component(xi_test, omega_nm1, omega_n, omega_np1)
+    psi_vals.append(psi_n)
+
+# Just check first two components at xi=-2
+val = np.abs(psi_vals[0])**2 + np.abs(psi_vals[1])**2
+print(f"|psi_1(-2.9)|^2 + |psi_2(-2.9)|^2 = {val:.16f}")
